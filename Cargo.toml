@@ -1,0 +1,10 @@
+[package]
+name = "listprocs"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+clap = "4.5"
+libc = "0.2"
+regex = "1.10"
