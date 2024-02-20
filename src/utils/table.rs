@@ -1,4 +1,4 @@
-use super::mark_first;
+use super::{mark_first, truncate_string};
 use std::{borrow::Cow, fmt::Write};
 
 type CalcWidth<T> = Box<dyn Fn(&T) -> usize>;
@@ -10,6 +10,7 @@ pub struct ColumnBuilder<T> {
     calc_value: CalcValue<T>,
     max_width: Option<usize>,
     h_padding: Option<usize>,
+    can_shrink: bool,
 }
 
 impl<T> ColumnBuilder<T> {
@@ -20,6 +21,7 @@ impl<T> ColumnBuilder<T> {
             calc_value,
             max_width: None,
             h_padding: None,
+            can_shrink: false,
         }
     }
 
@@ -30,12 +32,16 @@ impl<T> ColumnBuilder<T> {
         }
     }
 
-    pub fn max_width(self, max_width: Option<usize>) -> Self {
-        Self { max_width, ..self }
-    }
+    // pub fn max_width(self, max_width: Option<usize>) -> Self {
+    //     Self { max_width, ..self }
+    // }
 
     pub fn h_padding(self, h_padding: Option<usize>) -> Self {
         Self { h_padding, ..self }
+    }
+
+    pub fn can_shrink(self, can_shrink: bool) -> Self {
+        Self { can_shrink, ..self }
     }
 
     pub fn build(self) -> Column<T> {
@@ -43,9 +49,10 @@ impl<T> ColumnBuilder<T> {
             name: self.name,
             calc_width: self.calc_width,
             calc_value: self.calc_value,
-            width: self.name.len(),
+            width: self.name.chars().count(),
             max_width: self.max_width,
             h_padding: self.h_padding,
+            can_shrink: self.can_shrink,
         }
     }
 }
@@ -57,6 +64,7 @@ pub struct Column<T> {
     width: usize,
     max_width: Option<usize>,
     h_padding: Option<usize>,
+    can_shrink: bool,
 }
 
 pub struct Builder {
@@ -101,6 +109,7 @@ impl Builder {
         self,
         columns: &mut [Column<T>],
         data: impl IntoIterator<Item = &'a T> + Clone,
+        max_width: Option<usize>,
     ) -> String {
         let (corners, border_v) = if self.use_box_drawing {
             (['┌', '┬', '┐', '├', '┼', '┤', '└', '┴', '┘'], '│')
@@ -115,13 +124,44 @@ impl Builder {
                     .max(if let Some(calc_width) = &column.calc_width {
                         calc_width(row)
                     } else {
-                        (column.calc_value)(row).len()
+                        (column.calc_value)(row).chars().count()
                     });
             }
         }
         for column in columns.iter_mut() {
             if let Some(max_width) = column.max_width {
                 column.width = column.width.min(max_width);
+            }
+        }
+
+        if let Some(max_width) = max_width {
+            let total_width = columns
+                .iter()
+                .map(|column| column.width + 2 * column.h_padding.unwrap_or(self.h_padding))
+                .sum::<usize>()
+                + (columns.len() + 1);
+            if let Some(excess_width) = total_width.checked_sub(max_width) {
+                let shrinkable_width = columns
+                    .iter()
+                    .filter(|c| c.can_shrink)
+                    .map(|column| column.width)
+                    .sum::<usize>();
+                let non_shrinkable_width = total_width - shrinkable_width;
+
+                if shrinkable_width != 0 {
+                    let shrinkable_columns = columns.iter().filter(|c| c.can_shrink).count();
+                    for column in columns.iter_mut().filter(|c| c.can_shrink) {
+                        let scaled = column.width
+                            - (excess_width * column.width + shrinkable_width - 1)
+                                / shrinkable_width;
+                        let equal = (max_width - non_shrinkable_width) / shrinkable_columns;
+                        column.width = equal.wrapping_add_signed(
+                            (scaled as isize - equal as isize)
+                                * (3 * max_width + total_width) as isize
+                                / (4 * total_width) as isize,
+                        );
+                    }
+                }
             }
         }
 
@@ -177,10 +217,7 @@ impl Builder {
                     output.push(border_v);
                 }
                 let mut value = (column.calc_value)(row).into_owned();
-                if value.len() > column.width {
-                    value.truncate(column.width - 1);
-                    value.push('…');
-                }
+                truncate_string(&mut value, column.width);
                 let _ = write!(
                     output,
                     "{empty: <h_padding$}{value:<width$}{empty: <h_padding$}",

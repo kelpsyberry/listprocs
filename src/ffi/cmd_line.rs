@@ -1,3 +1,4 @@
+use super::utils::check_pos_zero;
 use libc::pid_t;
 use std::{
     ffi::{c_int, CStr, CString},
@@ -5,7 +6,6 @@ use std::{
     mem::size_of,
     ptr::{self, null_mut},
 };
-use super::utils::check_pos_zero;
 
 #[derive(Clone, Debug)]
 pub enum CmdLine<S> {
