@@ -1,5 +1,4 @@
-use super::utils::check_pos_zero;
-use libc::pid_t;
+use super::{utils::check_pos_zero, Pid};
 use std::{
     ffi::{c_int, CStr, CString},
     io,
@@ -15,7 +14,7 @@ pub enum CmdLine<S> {
 }
 
 impl CmdLine<CString> {
-    pub fn for_pid(pid: pid_t) -> Result<Self, io::Error> {
+    pub fn for_pid(pid: Pid) -> Result<Self, io::Error> {
         unsafe {
             let mut args_mem_len: c_int = 0;
             check_pos_zero(libc::sysctl(

@@ -1,5 +1,5 @@
-use super::utils::check_pos;
-use libc::{gid_t, pid_t, uid_t, MAXCOMLEN};
+use super::{utils::check_pos, Pid};
+use libc::{gid_t, uid_t, MAXCOMLEN};
 use std::{
     ffi::{c_char, c_int},
     io,
@@ -53,7 +53,7 @@ pub struct ProcBsdShortInfo {
 }
 
 impl ProcBsdShortInfo {
-    pub fn for_pid(pid: pid_t) -> Result<Self, io::Error> {
+    pub fn for_pid(pid: Pid) -> Result<Self, io::Error> {
         unsafe {
             let mut result = MaybeUninit::<Self>::uninit();
             check_pos(libc::proc_pidinfo(
