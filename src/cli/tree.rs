@@ -17,7 +17,7 @@ pub struct TreeArgs {
         default_missing_value = "true",
         default_value = "false",
     )]
-    /// Whether to show ancestors, even if otherwise filtered out.
+    /// Whether to show all ancestors of visible processes, even if otherwise filtered out.
     include_ancestors: bool,
 }
 

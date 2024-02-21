@@ -191,8 +191,9 @@ fn user_filter_parser() -> impl TypedValueParser {
 
 fn include_sip_long_help() -> String {
     format!(
-        "Whether to include SIP-protected executables. Executables are considered SIP-protected \
-         if they're in any of the following paths: {}.
+        "Whether to include SIP-protected executables.
+
+Executables are considered SIP-protected if they're in any of the following paths: {}.
 Defaults to true if using a regex, and false otherwise.",
         SIP_PREFIXES.join(", ")
     )
@@ -245,8 +246,10 @@ struct Args {
         value_delimiter = ',',
         default_missing_value = "-",
     )]
-    /// If present, only show processes belonging to the specified UIDs or usernames (a hyphen or
-    /// no value will select the current UID); if unspecified processes won't be filtered by user.
+    /// If present, only show processes belonging to the specified UIDs or usernames.
+    /// 
+    /// A hyphen or no value will select the current UID); if unspecified, processes won't be
+    /// filtered by user.
     user_filter: Option<Vec<UserFilter>>,
 
     #[arg(
