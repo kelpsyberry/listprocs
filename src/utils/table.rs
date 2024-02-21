@@ -141,7 +141,7 @@ impl Builder {
                 .sum::<usize>()
                 + (columns.len() + 1);
             if let Some(excess_width) = total_width.checked_sub(max_width) {
-                let shrinkable_width = columns
+                let mut shrinkable_width = columns
                     .iter()
                     .filter(|c| c.can_shrink)
                     .map(|column| column.width)
@@ -161,6 +161,18 @@ impl Builder {
                                 / (4 * total_width) as isize,
                         );
                     }
+                }
+
+                shrinkable_width = columns
+                    .iter()
+                    .filter(|c| c.can_shrink)
+                    .map(|column| column.width)
+                    .sum::<usize>();
+                for column in columns
+                    .iter_mut()
+                    .take(max_width - (shrinkable_width + non_shrinkable_width))
+                {
+                    column.width += 1;
                 }
             }
         }
