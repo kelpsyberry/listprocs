@@ -86,9 +86,9 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
                         (true, true) => '─',
                     },
                     if child_children.0.is_empty() {
-                        '─'
+                        "─╴"
                     } else {
-                        '┬'
+                        "┬╴"
                     },
                 )
             } else {
@@ -99,10 +99,10 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
                         (true, false) => '/',
                         (true, true) => '-',
                     },
-                    '-',
+                    "- ",
                 )
             };
-            println!("{borders}{border}{h_line} {pid} {name}");
+            println!("{borders}{border}{h_line}{pid} {name}");
 
             if is_last {
                 borders.push(' ');
