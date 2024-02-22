@@ -16,7 +16,7 @@ impl Pid {
             .filter_map(|entry| Some(Pid(entry.ok()?.file_name().to_str()?.parse().ok()?))))
     }
 
-    fn status(self) -> Result<(bool, Uid, Pid), io::Error> {
+    fn status(self) -> Result<(bool, OsString, Uid, Pid), io::Error> {
         let mut file = fs::File::open(format!("/proc/{self}/stat"))?;
 
         let metadata = file.metadata()?;
@@ -25,6 +25,11 @@ impl Pid {
         let mut bytes = Vec::with_capacity(metadata.len() as usize);
         file.read_to_end(&mut bytes)?;
 
+        let name_start = bytes
+            .iter()
+            .position(|b| *b == b'(')
+            .ok_or(io::ErrorKind::InvalidData)?
+            + 1;
         let name_end = bytes.len()
             - 1
             - bytes
@@ -41,7 +46,12 @@ impl Pid {
             .parse()
             .expect("couldn't parse /proc/pid/stat ppid");
 
-        Ok((is_defunct, uid, parent_pid))
+        Ok((
+            is_defunct,
+            OsStr::from_bytes(&bytes[name_start..name_end]).to_os_string(),
+            uid,
+            parent_pid,
+        ))
     }
 
     fn cmd_line(self) -> Result<Info<Option<Vec<OsString>>>, io::Error> {
@@ -69,7 +79,7 @@ impl Pid {
     }
 
     pub fn info(self) -> Result<ProcessInfo, io::Error> {
-        let (is_defunct, uid, parent_pid) = self.status()?;
+        let (is_defunct, name, uid, parent_pid) = self.status()?;
         let username = uid.username()?.to_string_lossy().into_owned();
 
         if is_defunct {
@@ -78,7 +88,12 @@ impl Pid {
                 parent_pid: Info::Some(parent_pid),
                 uid: Info::Some(uid),
                 username: Info::Some(username),
-                cmd_line: Info::Defunct,
+                cmd_line: Info::Some((!name.is_empty()).then(|| {
+                    let mut result = "[".to_string();
+                    result.push_str(name.to_string_lossy().as_ref());
+                    result.push_str("] <defunct>");
+                    result
+                })),
                 path: Info::Defunct,
             });
         }
