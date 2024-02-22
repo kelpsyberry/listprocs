@@ -58,21 +58,11 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                 .find_map(|column| {
                     ord_ne(match column {
                         ColumnName::Pid => a_pid.cmp(b_pid),
-                        ColumnName::ParentPid => a_info.cmp_by(b_info, |a_info, b_info| {
-                            a_info.parent_pid.cmp(&b_info.parent_pid)
-                        }),
-                        ColumnName::Uid => {
-                            a_info.cmp_by(b_info, |a_info, b_info| a_info.uid.cmp(&b_info.uid))
-                        }
-                        ColumnName::Username => a_info.cmp_by(b_info, |a_info, b_info| {
-                            a_info.username.cmp(&b_info.username)
-                        }),
-                        ColumnName::Path => a_info.cmp_by(b_info, |a_info, b_info| {
-                            a_info.path.cmp_by(&b_info.path, str::cmp)
-                        }),
-                        ColumnName::CmdLine => a_info.cmp_by(b_info, |a_info, b_info| {
-                            a_info.cmd_line.cmp_by(&b_info.cmd_line, str::cmp)
-                        }),
+                        ColumnName::ParentPid => a_info.parent_pid.cmp(&b_info.parent_pid),
+                        ColumnName::Uid => a_info.uid.cmp(&b_info.uid),
+                        ColumnName::Username => a_info.username.cmp(&b_info.username),
+                        ColumnName::Path => a_info.path.cmp(&b_info.path),
+                        ColumnName::CmdLine => a_info.cmd_line.cmp(&b_info.cmd_line),
                     })
                 })
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -92,36 +82,36 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
             .build(),
             ColumnName::ParentPid => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
                 "Parent",
-                Box::new(|(_, info)| match info {
-                    ProcessInfo::Defunct => "-".into(),
-                    ProcessInfo::Running(info) => info.parent_pid.to_string().into(),
+                Box::new(|(_, info)| match info.parent_pid.to_option() {
+                    None => "-".into(),
+                    Some(parent_pid) => parent_pid.to_string().into(),
                 }),
             )
-            .calc_width(Box::new(|(_, info)| match info {
-                ProcessInfo::Defunct => 1,
-                ProcessInfo::Running(info) => info.parent_pid.raw().max(1).ilog10() as usize + 1,
+            .calc_width(Box::new(|(_, info)| match info.parent_pid.to_option() {
+                None => 1,
+                Some(parent_pid) => parent_pid.raw().max(1).ilog10() as usize + 1,
             }))
             .h_padding(Some(1))
             .build(),
             ColumnName::Uid => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
                 "UID",
-                Box::new(|(_, info)| match info {
-                    ProcessInfo::Defunct => "-".into(),
-                    ProcessInfo::Running(info) => info.uid.to_string().into(),
+                Box::new(|(_, info)| match info.uid.to_option() {
+                    None => "-".into(),
+                    Some(uid) => uid.to_string().into(),
                 }),
             )
-            .calc_width(Box::new(|(_, info)| match info {
-                ProcessInfo::Defunct => 1,
-                ProcessInfo::Running(info) => info.uid.raw().max(1).ilog10() as usize + 1,
+            .calc_width(Box::new(|(_, info)| match info.uid.to_option() {
+                None => 1,
+                Some(uid) => uid.raw().max(1).ilog10() as usize + 1,
             }))
             .h_padding(Some(1))
             .build(),
             ColumnName::Username => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
                 "User",
                 Box::new(|(_, info)| {
-                    match info {
-                        ProcessInfo::Defunct => "-",
-                        ProcessInfo::Running(info) => &info.username,
+                    match info.username.to_option() {
+                        None => "-",
+                        Some(username) => username,
                     }
                     .into()
                 }),
@@ -130,13 +120,13 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
             .build(),
             ColumnName::Path => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
                 "Path",
-                Box::new(|(_, info)| info.path_str().into()),
+                Box::new(|(_, info)| info.path.to_str().into()),
             )
             .can_shrink(true)
             .build(),
             ColumnName::CmdLine => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
                 "Command line",
-                Box::new(|(_, info)| info.cmd_line_str().into()),
+                Box::new(|(_, info)| info.cmd_line.to_str().into()),
             )
             .can_shrink(true)
             .build(),

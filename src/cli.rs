@@ -26,44 +26,39 @@ struct ProcessFilter {
 
 impl ProcessInfo {
     fn filter(&self, _pid: Pid, filter: &ProcessFilter) -> bool {
-        (match self {
-            ProcessInfo::Defunct => filter.include_defunct,
-            ProcessInfo::Running(info) => {
-                ({
-                    #[cfg(target_vendor = "apple")]
-                    {
-                        filter.include_sip || !info.is_sip_protected()
-                    }
-                    #[cfg(not(target_vendor = "apple"))]
-                    true
-                }) && (!filter.exclude_unauthorized
-                    || info.path.to_option().is_some()
-                    || info.cmd_line.to_option().is_some())
-            }
-        }) && {
-            filter.usernames.is_empty()
-                || match self {
-                    ProcessInfo::Defunct => false,
-                    ProcessInfo::Running(info) => filter.usernames.contains(&info.username),
+        (filter.include_defunct || (!self.is_defunct))
+            && ({
+                #[cfg(target_vendor = "apple")]
+                {
+                    filter.include_sip || !self.is_sip_protected()
                 }
-        } && {
-            filter.user_ids.is_empty()
-                || match self {
-                    ProcessInfo::Defunct => false,
-                    ProcessInfo::Running(info) => filter.user_ids.contains(&info.uid),
-                }
-        } && {
-            filter.regex.as_ref().map_or(true, |regex| {
-                filter.invert_regex
-                    != match self {
-                        ProcessInfo::Defunct => regex.is_match("<defunct>"),
-                        ProcessInfo::Running(info) => {
-                            regex.is_match(info.path.to_str())
-                                || regex.is_match(info.cmd_line.to_str())
-                        }
-                    }
+                #[cfg(not(target_vendor = "apple"))]
+                true
             })
-        }
+            && (!filter.exclude_unauthorized
+                || self.is_defunct
+                || self.path.to_option().is_some()
+                || matches!(self.cmd_line.to_option(), Some(Some(_))))
+            && {
+                filter.usernames.is_empty()
+                    || self
+                        .username
+                        .to_option()
+                        .map_or(false, |username| filter.usernames.contains(username))
+            }
+            && {
+                filter.user_ids.is_empty()
+                    || self
+                        .uid
+                        .to_option()
+                        .map_or(false, |uid| filter.user_ids.contains(uid))
+            }
+            && {
+                filter.regex.as_ref().map_or(true, |regex| {
+                    filter.invert_regex != regex.is_match(self.path.to_str())
+                        || regex.is_match(self.cmd_line.to_str())
+                })
+            }
     }
 
     fn apply_filter<'a, P: Borrow<Pid>, I: Borrow<ProcessInfo>>(

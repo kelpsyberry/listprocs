@@ -4,7 +4,7 @@ mod cmd_line;
 mod proc_bsd_short_info;
 
 use super::utils::check_pos;
-use crate::{Info, ProcessInfo, RunningProcessInfo};
+use crate::{Info, ProcessInfo};
 use std::{
     ffi::{OsStr, OsString},
     io,
@@ -47,7 +47,14 @@ impl Pid {
             Ok(info) => info,
             Err(err) => {
                 if err.raw_os_error() == Some(3) {
-                    return Ok(ProcessInfo::Defunct);
+                    return Ok(ProcessInfo {
+                        is_defunct: true,
+                        parent_pid: Info::Defunct,
+                        uid: Info::Defunct,
+                        username: Info::Defunct,
+                        cmd_line: Info::Defunct,
+                        path: Info::Defunct,
+                    });
                 } else {
                     return Err(err);
                 }
@@ -58,12 +65,14 @@ impl Pid {
         let username = uid.username()?;
         let cmd_line = self.cmd_line()?;
 
-        Ok(ProcessInfo::Running(RunningProcessInfo {
-            parent_pid: Pid(bsd_info.parent_pid as _),
-            uid,
-            username: username.to_string_lossy().into_owned(),
+        Ok(ProcessInfo {
+            is_defunct: false,
+            parent_pid: Info::Some(Pid(bsd_info.parent_pid as _)),
+            uid: Info::Some(uid),
+            username: Info::Some(username.to_string_lossy().into_owned()),
             path: Info::Some(path.to_string_lossy().into_owned()),
             cmd_line: match cmd_line {
+                Info::Defunct => Info::Defunct,
                 Info::Unauthorized => Info::Unauthorized,
                 Info::Some(cmd_line) => {
                     Info::Some(cmd_line.map(|cmd_line| {
@@ -71,6 +80,6 @@ impl Pid {
                     }))
                 }
             },
-        }))
+        })
     }
 }

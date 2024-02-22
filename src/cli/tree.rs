@@ -32,15 +32,13 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
         let mut cur_path = Vec::new();
 
         for (pid, info) in processes_info {
-            cur_path.extend(iter::successors(
-                Some((*pid, info)),
-                |(_, info)| match info {
-                    ProcessInfo::Defunct => None,
-                    ProcessInfo::Running(info) => full_processes_info
-                        .get(&info.parent_pid)
-                        .map(|parent_info| (info.parent_pid, parent_info)),
-                },
-            ));
+            cur_path.extend(iter::successors(Some((*pid, info)), |(_, info)| {
+                info.parent_pid.to_option().and_then(|parent_pid| {
+                    full_processes_info
+                        .get(parent_pid)
+                        .map(|parent_info| (*parent_pid, parent_info))
+                })
+            }));
             let mut cur_root = &mut root;
             while let Some((pid, _)) = cur_path.pop() {
                 cur_root = cur_root.0.entry(pid).or_insert(Node(BTreeMap::default()));
@@ -58,14 +56,12 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
     ) {
         for (i, (pid, child_children)) in children.iter().enumerate() {
             let info = &processes_info[pid];
-            let mut name = match info {
-                ProcessInfo::Defunct => "<defunct>",
-                ProcessInfo::Running(info) => info
-                    .cmd_line
-                    .to_option()
-                    .unwrap_or_else(|| info.path.to_str()),
-            }
-            .to_string();
+            let mut name = info
+                .cmd_line
+                .to_option()
+                .cloned()
+                .flatten()
+                .unwrap_or_else(|| info.path.to_str().to_string());
 
             if let Some(max_len) = options.terminal_width.map(|width| {
                 width

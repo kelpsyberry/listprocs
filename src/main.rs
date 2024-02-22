@@ -5,92 +5,53 @@ mod ffi;
 use ffi::{Pid, Uid};
 mod utils;
 
-use std::{cmp::Ordering, io};
+use std::io;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Info<T> {
     Unauthorized,
+    Defunct,
     Some(T),
+}
+
+impl<T> Info<T> {
+    fn to_option(&self) -> Option<&T> {
+        match self {
+            Info::Defunct | Info::Unauthorized => None,
+            Info::Some(info) => Some(info),
+        }
+    }
 }
 
 impl Info<Option<String>> {
     fn to_str(&self) -> &str {
         match self {
+            Info::Defunct => "<defunct>",
             Info::Unauthorized => "<unauthorized>",
             Info::Some(None) => "<unknown>",
             Info::Some(Some(info)) => info,
         }
-    }
-
-    fn to_option(&self) -> Option<&str> {
-        match self {
-            Info::Some(None) | Info::Unauthorized => None,
-            Info::Some(Some(info)) => Some(info),
-        }
-    }
-
-    fn cmp_by(&self, other: &Self, compare: impl FnOnce(&str, &str) -> Ordering) -> Ordering {
-        let kind = |info: &Self| match info {
-            Info::Unauthorized => 0,
-            Info::Some(None) => 1,
-            Info::Some(Some(_)) => 2,
-        };
-        kind(self)
-            .cmp(&kind(other))
-            .then(compare(self.to_str(), other.to_str()))
     }
 }
 
 impl Info<String> {
     fn to_str(&self) -> &str {
         match self {
+            Info::Defunct => "<defunct>",
             Info::Unauthorized => "<unauthorized>",
             Info::Some(info) => info,
         }
     }
-
-    fn to_option(&self) -> Option<&str> {
-        match self {
-            Info::Unauthorized => None,
-            Info::Some(info) => Some(info),
-        }
-    }
-
-    fn cmp_by(&self, other: &Self, compare: impl FnOnce(&str, &str) -> Ordering) -> Ordering {
-        let kind = |info: &Info<String>| match info {
-            Info::Unauthorized => 0,
-            Info::Some(_) => 1,
-        };
-        kind(self)
-            .cmp(&kind(other))
-            .then(compare(self.to_str(), other.to_str()))
-    }
 }
 
 #[derive(Debug)]
-struct RunningProcessInfo {
-    parent_pid: Pid,
-    uid: Uid,
-    username: String,
-    path: Info<String>,
+struct ProcessInfo {
+    is_defunct: bool,
+    parent_pid: Info<Pid>,
+    uid: Info<Uid>,
+    username: Info<String>,
     cmd_line: Info<Option<String>>,
-}
-
-impl RunningProcessInfo {
-    #[cfg(target_vendor = "apple")]
-    fn is_sip_protected(&self) -> bool {
-        ProcessInfo::SIP_PREFIXES.iter().any(|&prefix| {
-            matches!(
-                &self.path,
-                Info::Some(path) if path.as_bytes().starts_with(prefix.as_bytes()))
-        })
-    }
-}
-
-#[derive(Debug)]
-enum ProcessInfo {
-    Defunct,
-    Running(RunningProcessInfo),
+    path: Info<String>,
 }
 
 impl ProcessInfo {
@@ -119,31 +80,13 @@ impl ProcessInfo {
             })
     }
 
-    fn path_str(&self) -> &str {
-        match self {
-            ProcessInfo::Defunct => "<defunct>",
-            ProcessInfo::Running(info) => info.path.to_str(),
-        }
-    }
-
-    fn cmd_line_str(&self) -> &str {
-        match self {
-            ProcessInfo::Defunct => "<defunct>",
-            ProcessInfo::Running(info) => info.cmd_line.to_str(),
-        }
-    }
-
-    fn cmp_by(
-        &self,
-        other: &Self,
-        compare: impl FnOnce(&RunningProcessInfo, &RunningProcessInfo) -> Ordering,
-    ) -> Ordering {
-        match (self, other) {
-            (ProcessInfo::Running(a), ProcessInfo::Running(b)) => compare(a, b),
-            (ProcessInfo::Defunct, ProcessInfo::Running(_)) => Ordering::Less,
-            (ProcessInfo::Running(_), ProcessInfo::Defunct) => Ordering::Greater,
-            (ProcessInfo::Defunct, ProcessInfo::Defunct) => Ordering::Equal,
-        }
+    #[cfg(target_vendor = "apple")]
+    fn is_sip_protected(&self) -> bool {
+        ProcessInfo::SIP_PREFIXES.iter().any(|&prefix| {
+            self.path
+                .to_option()
+                .map_or(false, |path| path.as_bytes().starts_with(prefix.as_bytes()))
+        })
     }
 }
 

@@ -1,6 +1,6 @@
 pub use super::unix::*;
 
-use crate::{Info, ProcessInfo, RunningProcessInfo};
+use crate::{Info, ProcessInfo};
 use std::{
     ffi::{OsStr, OsString},
     fs,
@@ -69,24 +69,35 @@ impl Pid {
     }
 
     pub fn info(self) -> Result<ProcessInfo, io::Error> {
-        let (is_defunct, uid, parent_pid) = dbg!(dbg!(self).status())?;
+        let (is_defunct, uid, parent_pid) = self.status()?;
+        let username = uid.username()?.to_string_lossy().into_owned();
+
         if is_defunct {
-            return Ok(ProcessInfo::Defunct);
+            return Ok(ProcessInfo {
+                is_defunct,
+                parent_pid: Info::Some(parent_pid),
+                uid: Info::Some(uid),
+                username: Info::Some(username),
+                cmd_line: Info::Defunct,
+                path: Info::Defunct,
+            });
         }
 
-        let path = dbg!(self.path())?;
-        let username = dbg!(uid.username())?;
-        let cmd_line = dbg!(self.cmd_line())?;
+        let path = self.path()?;
+        let cmd_line = self.cmd_line()?;
 
-        Ok(ProcessInfo::Running(RunningProcessInfo {
-            parent_pid,
-            uid,
-            username: username.to_string_lossy().into_owned(),
+        Ok(ProcessInfo {
+            is_defunct,
+            parent_pid: Info::Some(parent_pid),
+            uid: Info::Some(uid),
+            username: Info::Some(username),
             path: match path {
-                Info::Some(path) => Info::Some(path.to_string_lossy().into_owned()),
+                Info::Defunct => Info::Defunct,
                 Info::Unauthorized => Info::Unauthorized,
+                Info::Some(path) => Info::Some(path.to_string_lossy().into_owned()),
             },
             cmd_line: match cmd_line {
+                Info::Defunct => Info::Defunct,
                 Info::Unauthorized => Info::Unauthorized,
                 Info::Some(cmd_line) => {
                     Info::Some(cmd_line.map(|cmd_line| {
@@ -94,6 +105,6 @@ impl Pid {
                     }))
                 }
             },
-        }))
+        })
     }
 }
