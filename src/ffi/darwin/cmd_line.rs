@@ -1,4 +1,4 @@
-use crate::{ffi::utils::check_pos_zero, CmdLine, Pid};
+use crate::{ffi::utils::check_pos_zero, Info, Pid};
 use std::{
     ffi::{c_int, OsStr, OsString},
     io,
@@ -8,7 +8,7 @@ use std::{
 };
 
 impl Pid {
-    pub(super) fn cmd_line(self) -> Result<CmdLine<Vec<OsString>>, io::Error> {
+    pub(super) fn cmd_line(self) -> Result<Info<Option<Vec<OsString>>>, io::Error> {
         unsafe {
             let mut args_mem_len: c_int = 0;
             check_pos_zero(libc::sysctl(
@@ -30,7 +30,7 @@ impl Pid {
                 0,
             )) {
                 match err.kind() {
-                    io::ErrorKind::InvalidInput => return Ok(CmdLine::Unauthorized),
+                    io::ErrorKind::InvalidInput => return Ok(Info::Unauthorized),
                     _ => return Err(err),
                 }
             }
@@ -46,7 +46,7 @@ impl Pid {
                 start += 1;
             }
             if start == args_mem.len() {
-                return Ok(CmdLine::None);
+                return Ok(Info::Some(None));
             }
 
             let mut args = Vec::with_capacity(arg_count);
@@ -61,11 +61,7 @@ impl Pid {
                 }
                 cur_arg_start = cur + 1;
             }
-            Ok(if args.is_empty() {
-                CmdLine::None
-            } else {
-                CmdLine::Some(args)
-            })
+            Ok(Info::Some((!args.is_empty()).then_some(args)))
         }
     }
 }

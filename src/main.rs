@@ -7,21 +7,64 @@ mod utils;
 
 use std::{cmp::Ordering, io};
 
-#[cfg(target_vendor = "apple")]
-static SIP_PREFIXES: &[&str] = &[
-    "/bin",
-    "/sbin",
-    "/usr/bin",
-    "/usr/sbin",
-    "/usr/libexec",
-    "/System",
-];
-
 #[derive(Clone, Debug)]
-enum CmdLine<S> {
-    None,
+enum Info<T> {
     Unauthorized,
-    Some(S),
+    Some(T),
+}
+
+impl Info<Option<String>> {
+    fn to_str(&self) -> &str {
+        match self {
+            Info::Unauthorized => "<unauthorized>",
+            Info::Some(None) => "<unknown>",
+            Info::Some(Some(info)) => info,
+        }
+    }
+
+    fn to_option(&self) -> Option<&str> {
+        match self {
+            Info::Some(None) | Info::Unauthorized => None,
+            Info::Some(Some(info)) => Some(info),
+        }
+    }
+
+    fn cmp_by(&self, other: &Self, compare: impl FnOnce(&str, &str) -> Ordering) -> Ordering {
+        let kind = |info: &Self| match info {
+            Info::Unauthorized => 0,
+            Info::Some(None) => 1,
+            Info::Some(Some(_)) => 2,
+        };
+        kind(self)
+            .cmp(&kind(other))
+            .then(compare(self.to_str(), other.to_str()))
+    }
+}
+
+impl Info<String> {
+    fn to_str(&self) -> &str {
+        match self {
+            Info::Unauthorized => "<unauthorized>",
+            Info::Some(info) => info,
+        }
+    }
+
+    fn to_option(&self) -> Option<&str> {
+        match self {
+            Info::Unauthorized => None,
+            Info::Some(info) => Some(info),
+        }
+    }
+
+    fn cmp_by(&self, other: &Self, compare: impl FnOnce(&str, &str) -> Ordering) -> Ordering {
+        let kind = |info: &Info<String>| match info {
+            Info::Unauthorized => 0,
+            Info::Some(_) => 1,
+        };
+        kind(self)
+            .cmp(&kind(other))
+            .then(compare(self.to_str(), other.to_str()))
+    }
 }
 
 #[derive(Debug)]
@@ -29,24 +72,18 @@ struct RunningProcessInfo {
     parent_pid: Pid,
     uid: Uid,
     username: String,
-    path: String,
-    cmd_line: CmdLine<String>,
+    path: Info<String>,
+    cmd_line: Info<Option<String>>,
 }
 
 impl RunningProcessInfo {
     #[cfg(target_vendor = "apple")]
     fn is_sip_protected(&self) -> bool {
-        SIP_PREFIXES
-            .iter()
-            .any(|&prefix| self.path.as_bytes().starts_with(prefix.as_bytes()))
-    }
-
-    fn cmd_line_str(&self) -> &str {
-        match &self.cmd_line {
-            CmdLine::None => "<unknown>",
-            CmdLine::Unauthorized => "<unauthorized>",
-            CmdLine::Some(cmd_line) => cmd_line,
-        }
+        ProcessInfo::SIP_PREFIXES.iter().any(|&prefix| {
+            matches!(
+                &self.path,
+                Info::Some(path) if path.as_bytes().starts_with(prefix.as_bytes()))
+        })
     }
 }
 
@@ -57,6 +94,16 @@ enum ProcessInfo {
 }
 
 impl ProcessInfo {
+    #[cfg(target_vendor = "apple")]
+    const SIP_PREFIXES: &'static [&'static str] = &[
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/libexec",
+        "/System",
+    ];
+
     fn list_all() -> impl Iterator<Item = (Pid, Self)> {
         Pid::all_active()
             .expect("couldn't list all PIDs")
@@ -72,10 +119,17 @@ impl ProcessInfo {
             })
     }
 
+    fn path_str(&self) -> &str {
+        match self {
+            ProcessInfo::Defunct => "<defunct>",
+            ProcessInfo::Running(info) => info.path.to_str(),
+        }
+    }
+
     fn cmd_line_str(&self) -> &str {
         match self {
             ProcessInfo::Defunct => "<defunct>",
-            ProcessInfo::Running(info) => info.cmd_line_str(),
+            ProcessInfo::Running(info) => info.cmd_line.to_str(),
         }
     }
 

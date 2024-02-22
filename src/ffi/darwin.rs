@@ -4,7 +4,7 @@ mod cmd_line;
 mod proc_bsd_short_info;
 
 use super::utils::check_pos;
-use crate::{CmdLine, ProcessInfo, RunningProcessInfo};
+use crate::{Info, ProcessInfo, RunningProcessInfo};
 use std::{
     ffi::{OsStr, OsString},
     io,
@@ -62,12 +62,13 @@ impl Pid {
             parent_pid: Pid(bsd_info.parent_pid as _),
             uid,
             username: username.to_string_lossy().into_owned(),
-            path: path.to_string_lossy().into_owned(),
+            path: Info::Some(path.to_string_lossy().into_owned()),
             cmd_line: match cmd_line {
-                CmdLine::None => CmdLine::None,
-                CmdLine::Unauthorized => CmdLine::Unauthorized,
-                CmdLine::Some(cmd_line) => {
-                    CmdLine::Some(cmd_line.join(OsStr::new(" ")).to_string_lossy().to_string())
+                Info::Unauthorized => Info::Unauthorized,
+                Info::Some(cmd_line) => {
+                    Info::Some(cmd_line.map(|cmd_line| {
+                        cmd_line.join(OsStr::new(" ")).to_string_lossy().to_string()
+                    }))
                 }
             },
         }))

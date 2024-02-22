@@ -5,9 +5,9 @@ use tree::TreeArgs;
 mod user_filter;
 use user_filter::UserFilter;
 
-use crate::{Pid, ProcessInfo, Uid, SIP_PREFIXES};
+use crate::{Pid, ProcessInfo, Uid};
 use clap::{
-    builder::{ArgPredicate, StringValueParser, TypedValueParser},
+    builder::{StringValueParser, TypedValueParser},
     ArgAction, Parser,
 };
 use regex::{Regex, RegexBuilder};
@@ -18,6 +18,7 @@ struct ProcessFilter {
     invert_regex: bool,
     user_ids: Vec<Uid>,
     usernames: Vec<String>,
+    exclude_unauthorized: bool,
     include_defunct: bool,
     #[cfg(target_vendor = "apple")]
     include_sip: bool,
@@ -28,12 +29,16 @@ impl ProcessInfo {
         (match self {
             ProcessInfo::Defunct => filter.include_defunct,
             ProcessInfo::Running(info) => {
-                #[cfg(target_vendor = "apple")]
-                {
-                    filter.include_sip || !info.is_sip_protected()
-                }
-                #[cfg(not(target_vendor = "apple"))]
-                true
+                ({
+                    #[cfg(target_vendor = "apple")]
+                    {
+                        filter.include_sip || !info.is_sip_protected()
+                    }
+                    #[cfg(not(target_vendor = "apple"))]
+                    true
+                }) && (!filter.exclude_unauthorized
+                    || info.path.to_option().is_some()
+                    || info.cmd_line.to_option().is_some())
             }
         }) && {
             filter.usernames.is_empty()
@@ -53,7 +58,8 @@ impl ProcessInfo {
                     != match self {
                         ProcessInfo::Defunct => regex.is_match("<defunct>"),
                         ProcessInfo::Running(info) => {
-                            regex.is_match(&info.path) || regex.is_match(info.cmd_line_str())
+                            regex.is_match(info.path.to_str())
+                                || regex.is_match(info.cmd_line.to_str())
                         }
                     }
             })
@@ -90,7 +96,7 @@ fn include_sip_long_help() -> String {
 
 Executables are considered SIP-protected if they're in any of the following paths: {}.
 Defaults to true if using a regex, and false otherwise.",
-        SIP_PREFIXES.join(", ")
+        ProcessInfo::SIP_PREFIXES.join(", ")
     )
 }
 
@@ -150,6 +156,18 @@ struct Args {
     #[arg(
         global = true,
         action = ArgAction::Set,
+        long = "no-unauthorized",
+        value_name = "BOOL",
+        require_equals = true,
+        num_args = 0..2,
+        default_missing_value = "true",
+        default_value = "false",
+    )]
+    /// Whether to exclude processes for which both the path and command line can't be accessed.
+    exclude_unauthorized: bool,
+    #[arg(
+        global = true,
+        action = ArgAction::Set,
         long = "defunct",
         value_name = "BOOL",
         require_equals = true,
@@ -169,7 +187,7 @@ struct Args {
         num_args = 0..2,
         default_missing_value = "true",
         default_value = "false",
-        default_value_if("regex", ArgPredicate::IsPresent, Some("true")),
+        default_value_if("regex", clap::builder::ArgPredicate::IsPresent, Some("true")),
         long_help = include_sip_long_help(),
     )]
     /// Whether to include SIP-protected executables.
@@ -211,6 +229,7 @@ pub fn main() {
             invert_regex: args.invert_matches,
             user_ids,
             usernames,
+            exclude_unauthorized: args.exclude_unauthorized,
             include_defunct: args.include_defunct,
             #[cfg(target_vendor = "apple")]
             include_sip: args.include_sip,

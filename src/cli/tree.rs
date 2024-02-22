@@ -1,5 +1,5 @@
 use super::{GlobalOptions, ProcessInfo};
-use crate::{utils::truncate_string, CmdLine, Pid};
+use crate::{utils::truncate_string, Pid};
 use std::{
     collections::{BTreeMap, HashMap},
     iter,
@@ -60,10 +60,10 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
             let info = &processes_info[pid];
             let mut name = match info {
                 ProcessInfo::Defunct => "<defunct>",
-                ProcessInfo::Running(info) => match &info.cmd_line {
-                    CmdLine::None | CmdLine::Unauthorized => &info.path,
-                    CmdLine::Some(cmd_line) => cmd_line,
-                },
+                ProcessInfo::Running(info) => info
+                    .cmd_line
+                    .to_option()
+                    .unwrap_or_else(|| info.path.to_str()),
             }
             .to_string();
 

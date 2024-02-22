@@ -1,5 +1,5 @@
 use super::GlobalOptions;
-use crate::{utils::table, CmdLine, Pid, ProcessInfo};
+use crate::{utils::table, Pid, ProcessInfo};
 use std::cmp::Ordering;
 
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -67,17 +67,11 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                         ColumnName::Username => a_info.cmp_by(b_info, |a_info, b_info| {
                             a_info.username.cmp(&b_info.username)
                         }),
-                        ColumnName::Path => {
-                            a_info.cmp_by(b_info, |a_info, b_info| a_info.path.cmp(&b_info.path))
-                        }
+                        ColumnName::Path => a_info.cmp_by(b_info, |a_info, b_info| {
+                            a_info.path.cmp_by(&b_info.path, str::cmp)
+                        }),
                         ColumnName::CmdLine => a_info.cmp_by(b_info, |a_info, b_info| {
-                            let kind = |cmd_line: &CmdLine<String>| match cmd_line {
-                                CmdLine::None => 0,
-                                CmdLine::Unauthorized => 1,
-                                CmdLine::Some(_) => 2,
-                            };
-                            ord_ne(kind(&a_info.cmd_line).cmp(&kind(&b_info.cmd_line)))
-                                .unwrap_or_else(|| a_info.cmd_line_str().cmp(b_info.cmd_line_str()))
+                            a_info.cmd_line.cmp_by(&b_info.cmd_line, str::cmp)
                         }),
                     })
                 })
@@ -136,13 +130,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
             .build(),
             ColumnName::Path => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
                 "Path",
-                Box::new(|(_, info)| {
-                    match info {
-                        ProcessInfo::Defunct => "<defunct>",
-                        ProcessInfo::Running(info) => &info.path,
-                    }
-                    .into()
-                }),
+                Box::new(|(_, info)| info.path_str().into()),
             )
             .can_shrink(true)
             .build(),
