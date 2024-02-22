@@ -1,20 +1,14 @@
-use super::{utils::check_pos_zero, Pid};
+use crate::{ffi::utils::check_pos_zero, CmdLine, Pid};
 use std::{
-    ffi::{c_int, CStr, CString},
+    ffi::{c_int, OsStr, OsString},
     io,
     mem::size_of,
-    ptr::{self, null_mut},
+    os::unix::ffi::OsStrExt,
+    ptr::null_mut,
 };
 
-#[derive(Clone, Debug)]
-pub enum CmdLine<S> {
-    None,
-    Unauthorized,
-    Some(S),
-}
-
-impl CmdLine<CString> {
-    pub fn for_pid(pid: Pid) -> Result<Self, io::Error> {
+impl Pid {
+    pub(super) fn cmd_line(self) -> Result<CmdLine<Vec<OsString>>, io::Error> {
         unsafe {
             let mut args_mem_len: c_int = 0;
             check_pos_zero(libc::sysctl(
@@ -28,7 +22,7 @@ impl CmdLine<CString> {
             let mut args_mem_len = args_mem_len as usize;
             let mut args_mem = Vec::<u8>::with_capacity(args_mem_len);
             if let Err(err) = check_pos_zero(libc::sysctl(
-                [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as c_int].as_mut_ptr(),
+                [libc::CTL_KERN, libc::KERN_PROCARGS2, self.0 as c_int].as_mut_ptr(),
                 3,
                 args_mem.as_mut_ptr().cast(),
                 &mut args_mem_len,
@@ -42,7 +36,7 @@ impl CmdLine<CString> {
             }
             args_mem.set_len(args_mem_len);
 
-            let arg_count: u32 = ptr::read_unaligned(args_mem.as_ptr().cast());
+            let arg_count = args_mem.as_ptr().cast::<u32>().read_unaligned() as usize;
 
             let mut start = 4;
             while start < args_mem.len() && args_mem[start] != 0 {
@@ -55,31 +49,23 @@ impl CmdLine<CString> {
                 return Ok(CmdLine::None);
             }
 
-            let end = {
-                let mut arg_i = 0;
-                let mut cur = start;
-                let mut last_end = None;
-                while arg_i < arg_count && cur < args_mem.len() {
-                    if args_mem[cur] == 0 {
-                        arg_i += 1;
-                        if let Some(last_end) = last_end {
-                            args_mem[last_end] = b' ';
-                        }
-                        last_end = Some(cur);
-                    }
-                    cur += 1;
+            let mut args = Vec::with_capacity(arg_count);
+            let mut cur_arg_start = start;
+            for cur in start..args_mem.len() {
+                if args_mem[cur] != 0 {
+                    continue;
                 }
-                let Some(last_end) = last_end else {
-                    return Ok(CmdLine::None);
-                };
-                last_end
-            };
-
-            Ok(CmdLine::Some(
-                CStr::from_bytes_with_nul(&args_mem[start..=end])
-                    .expect("string should have been null terminated")
-                    .to_owned(),
-            ))
+                args.push(OsStr::from_bytes(&args_mem[cur_arg_start..cur]).to_os_string());
+                if args.len() >= arg_count {
+                    break;
+                }
+                cur_arg_start = cur + 1;
+            }
+            Ok(if args.is_empty() {
+                CmdLine::None
+            } else {
+                CmdLine::Some(args)
+            })
         }
     }
 }

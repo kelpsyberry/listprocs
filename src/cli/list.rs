@@ -1,6 +1,5 @@
-use super::{GlobalOptions, ProcessInfo};
-use crate::ffi::{self, Pid};
-use crate::utils::table;
+use super::GlobalOptions;
+use crate::{utils::table, CmdLine, Pid, ProcessInfo};
 use std::cmp::Ordering;
 
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -72,10 +71,10 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                             a_info.cmp_by(b_info, |a_info, b_info| a_info.path.cmp(&b_info.path))
                         }
                         ColumnName::CmdLine => a_info.cmp_by(b_info, |a_info, b_info| {
-                            let kind = |cmd_line: &ffi::CmdLine<String>| match cmd_line {
-                                ffi::CmdLine::None => 0,
-                                ffi::CmdLine::Unauthorized => 1,
-                                ffi::CmdLine::Some(_) => 2,
+                            let kind = |cmd_line: &CmdLine<String>| match cmd_line {
+                                CmdLine::None => 0,
+                                CmdLine::Unauthorized => 1,
+                                CmdLine::Some(_) => 2,
                             };
                             ord_ne(kind(&a_info.cmd_line).cmp(&kind(&b_info.cmd_line)))
                                 .unwrap_or_else(|| a_info.cmd_line_str().cmp(b_info.cmd_line_str()))
@@ -94,7 +93,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                 "PID",
                 Box::new(|(pid, _)| pid.to_string().into()),
             )
-            .calc_width(Box::new(|(pid, _)| (*pid).max(1).ilog10() as usize + 1))
+            .calc_width(Box::new(|(pid, _)| pid.raw().max(1).ilog10() as usize + 1))
             .h_padding(Some(1))
             .build(),
             ColumnName::ParentPid => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
@@ -104,7 +103,10 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                     ProcessInfo::Running(info) => info.parent_pid.to_string().into(),
                 }),
             )
-            .calc_width(Box::new(|(pid, _)| (*pid).max(1).ilog10() as usize + 1))
+            .calc_width(Box::new(|(_, info)| match info {
+                ProcessInfo::Defunct => 1,
+                ProcessInfo::Running(info) => info.parent_pid.raw().max(1).ilog10() as usize + 1,
+            }))
             .h_padding(Some(1))
             .build(),
             ColumnName::Uid => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
@@ -116,7 +118,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
             )
             .calc_width(Box::new(|(_, info)| match info {
                 ProcessInfo::Defunct => 1,
-                ProcessInfo::Running(info) => info.uid.max(1).ilog10() as usize + 1,
+                ProcessInfo::Running(info) => info.uid.raw().max(1).ilog10() as usize + 1,
             }))
             .h_padding(Some(1))
             .build(),

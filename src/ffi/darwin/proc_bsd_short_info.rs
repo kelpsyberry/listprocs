@@ -1,4 +1,4 @@
-use super::{utils::check_pos, Pid};
+use crate::{ffi::utils::check_pos, Pid};
 use libc::{gid_t, uid_t, MAXCOMLEN};
 use std::{
     ffi::{c_char, c_int},
@@ -52,16 +52,16 @@ pub struct ProcBsdShortInfo {
     pub reserved: u32,
 }
 
-impl ProcBsdShortInfo {
-    pub fn for_pid(pid: Pid) -> Result<Self, io::Error> {
+impl Pid {
+    pub(super) fn bsd_short_info(self) -> Result<ProcBsdShortInfo, io::Error> {
         unsafe {
-            let mut result = MaybeUninit::<Self>::uninit();
+            let mut result = MaybeUninit::<ProcBsdShortInfo>::uninit();
             check_pos(libc::proc_pidinfo(
-                pid,
+                self.0,
                 PROC_PIDT_SHORTBSDINFO,
                 0,
                 result.as_mut_ptr().cast(),
-                size_of::<Self>() as c_int,
+                size_of::<ProcBsdShortInfo>() as c_int,
             ))?;
             Ok(result.assume_init())
         }

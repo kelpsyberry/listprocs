@@ -1,4 +1,4 @@
-use super::ffi::{self, Uid};
+use crate::Uid;
 use clap::{
     builder::TypedValueParser,
     error::{ContextKind, ContextValue, ErrorKind},
@@ -46,7 +46,7 @@ impl TypedValueParser for Parser {
                     .unwrap_or_else(|| "...".to_owned()),
             ))
         } else if value == "-" {
-            Ok(UserFilter::Uid(ffi::current_uid()))
+            Ok(UserFilter::Uid(Uid::current()))
         } else if let Ok(uid) = value.parse::<Uid>() {
             Ok(UserFilter::Uid(uid))
         } else {

@@ -1,6 +1,5 @@
 use super::{GlobalOptions, ProcessInfo};
-use crate::ffi::{self, Pid};
-use crate::utils::truncate_string;
+use crate::{utils::truncate_string, CmdLine, Pid};
 use std::{
     collections::{BTreeMap, HashMap},
     iter,
@@ -62,15 +61,19 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
             let mut name = match info {
                 ProcessInfo::Defunct => "<defunct>",
                 ProcessInfo::Running(info) => match &info.cmd_line {
-                    ffi::CmdLine::None | ffi::CmdLine::Unauthorized => &info.path,
-                    ffi::CmdLine::Some(cmd_line) => cmd_line,
+                    CmdLine::None | CmdLine::Unauthorized => &info.path,
+                    CmdLine::Some(cmd_line) => cmd_line,
                 },
             }
             .to_string();
 
             if let Some(max_len) = options.terminal_width.map(|width| {
                 width
-                    - (borders.chars().count() + 2 + 1 + ((*pid).max(1).ilog10() as usize + 1) + 1)
+                    - (borders.chars().count()
+                        + 2
+                        + 1
+                        + (pid.raw().max(1).ilog10() as usize + 1)
+                        + 1)
             }) {
                 truncate_string(&mut name, max_len);
             }

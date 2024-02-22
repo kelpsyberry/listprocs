@@ -5,97 +5,13 @@ use tree::TreeArgs;
 mod user_filter;
 use user_filter::UserFilter;
 
-use crate::ffi::{self, Pid, Uid};
+use crate::{Pid, ProcessInfo, Uid, SIP_PREFIXES};
 use clap::{
     builder::{ArgPredicate, StringValueParser, TypedValueParser},
     ArgAction, Parser,
 };
 use regex::{Regex, RegexBuilder};
-use std::{borrow::Borrow, cmp::Ordering, io};
-
-#[derive(Debug)]
-struct RunningProcessInfo {
-    parent_pid: Pid,
-    uid: Uid,
-    username: String,
-    path: String,
-    cmd_line: ffi::CmdLine<String>,
-}
-
-static SIP_PREFIXES: &[&str] = &[
-    "/bin",
-    "/sbin",
-    "/usr/bin",
-    "/usr/sbin",
-    "/usr/libexec",
-    "/System",
-];
-
-impl RunningProcessInfo {
-    fn new(pid: Pid) -> Result<Self, io::Error> {
-        let bsd_info = ffi::ProcBsdShortInfo::for_pid(pid)?;
-        let path = ffi::path_for_pid(pid)?;
-        let uid = bsd_info.uid;
-        let username = ffi::username_for_uid(uid)?;
-        let cmd_line = ffi::CmdLine::for_pid(pid)?;
-
-        Ok(RunningProcessInfo {
-            parent_pid: bsd_info.parent_pid as Pid,
-            uid,
-            username: username.to_string_lossy().into_owned(),
-            path: path.to_string_lossy().into_owned(),
-            cmd_line: match cmd_line {
-                ffi::CmdLine::None => ffi::CmdLine::None,
-                ffi::CmdLine::Unauthorized => ffi::CmdLine::Unauthorized,
-                ffi::CmdLine::Some(cmd_line) => {
-                    ffi::CmdLine::Some(cmd_line.to_string_lossy().into_owned())
-                }
-            },
-        })
-    }
-
-    fn is_sip_protected(&self) -> bool {
-        SIP_PREFIXES
-            .iter()
-            .any(|&prefix| self.path.as_bytes().starts_with(prefix.as_bytes()))
-    }
-
-    fn cmd_line_str(&self) -> &str {
-        match &self.cmd_line {
-            ffi::CmdLine::None => "<unknown>",
-            ffi::CmdLine::Unauthorized => "<unauthorized>",
-            ffi::CmdLine::Some(cmd_line) => cmd_line,
-        }
-    }
-}
-
-#[derive(Debug)]
-enum ProcessInfo {
-    Defunct,
-    Running(RunningProcessInfo),
-}
-
-impl ProcessInfo {
-    fn cmd_line_str(&self) -> &str {
-        match self {
-            ProcessInfo::Defunct => "<defunct>",
-            ProcessInfo::Running(info) => info.cmd_line_str(),
-        }
-    }
-
-    fn cmp_by(
-        &self,
-        other: &Self,
-        compare: impl FnOnce(&RunningProcessInfo, &RunningProcessInfo) -> Ordering,
-    ) -> Ordering {
-        match (self, other) {
-            (ProcessInfo::Running(a), ProcessInfo::Running(b)) => compare(a, b),
-            (ProcessInfo::Defunct, ProcessInfo::Running(_)) => Ordering::Less,
-            (ProcessInfo::Running(_), ProcessInfo::Defunct) => Ordering::Greater,
-            (ProcessInfo::Defunct, ProcessInfo::Defunct) => Ordering::Equal,
-        }
-    }
-}
+use std::borrow::Borrow;
 
 struct ProcessFilter {
     regex: Option<Regex>,
@@ -103,60 +19,38 @@ struct ProcessFilter {
     user_ids: Vec<Uid>,
     usernames: Vec<String>,
     include_defunct: bool,
+    #[cfg(target_vendor = "apple")]
     include_sip: bool,
 }
 
 impl ProcessInfo {
-    fn new(pid: Pid) -> Result<Self, io::Error> {
-        match RunningProcessInfo::new(pid) {
-            Ok(info) => Ok(ProcessInfo::Running(info)),
-            Err(err) => {
-                if err.raw_os_error() == Some(3) {
-                    Ok(ProcessInfo::Defunct)
-                } else {
-                    Err(err)
-                }
-            }
-        }
-    }
-
-    fn list_all() -> impl Iterator<Item = (Pid, Self)> {
-        ffi::all_pids()
-            .expect("couldn't list all PIDs")
-            .into_iter()
-            .filter(|&pid| pid != 0)
-            .filter_map(|pid| match ProcessInfo::new(pid) {
-                Ok(info) => Some((pid, info)),
-                Err(err) => match err.kind() {
-                    io::ErrorKind::PermissionDenied => None,
-                    _ => {
-                        eprintln!("Couldn't get info for PID {pid}: {} {err}.", err.kind());
-                        None
-                    }
-                },
-            })
-    }
-
-    fn filter(_pid: Pid, info: &Self, filter: &ProcessFilter) -> bool {
-        (match info {
+    fn filter(&self, _pid: Pid, filter: &ProcessFilter) -> bool {
+        (match self {
             ProcessInfo::Defunct => filter.include_defunct,
-            ProcessInfo::Running(info) => filter.include_sip || !info.is_sip_protected(),
+            ProcessInfo::Running(info) => {
+                #[cfg(target_vendor = "apple")]
+                {
+                    filter.include_sip || !info.is_sip_protected()
+                }
+                #[cfg(not(target_vendor = "apple"))]
+                true
+            }
         }) && {
             filter.usernames.is_empty()
-                || match info {
+                || match self {
                     ProcessInfo::Defunct => false,
                     ProcessInfo::Running(info) => filter.usernames.contains(&info.username),
                 }
         } && {
             filter.user_ids.is_empty()
-                || match info {
+                || match self {
                     ProcessInfo::Defunct => false,
                     ProcessInfo::Running(info) => filter.user_ids.contains(&info.uid),
                 }
         } && {
             filter.regex.as_ref().map_or(true, |regex| {
                 filter.invert_regex
-                    != match info {
+                    != match self {
                         ProcessInfo::Defunct => regex.is_match("<defunct>"),
                         ProcessInfo::Running(info) => {
                             regex.is_match(&info.path) || regex.is_match(info.cmd_line_str())
@@ -171,7 +65,7 @@ impl ProcessInfo {
         filter: &'a ProcessFilter,
     ) -> impl Iterator<Item = (P, I)> + 'a {
         info.into_iter()
-            .filter(|(pid, info)| Self::filter(*pid.borrow(), info.borrow(), filter))
+            .filter(|(pid, info)| info.borrow().filter(*pid.borrow(), filter))
     }
 }
 
@@ -189,6 +83,7 @@ fn user_filter_parser() -> impl TypedValueParser {
     user_filter::Parser
 }
 
+#[cfg(target_vendor = "apple")]
 fn include_sip_long_help() -> String {
     format!(
         "Whether to include SIP-protected executables.
@@ -247,7 +142,7 @@ struct Args {
         default_missing_value = "-",
     )]
     /// If present, only show processes belonging to the specified UIDs or usernames.
-    /// 
+    ///
     /// A hyphen or no value will select the current UID); if unspecified, processes won't be
     /// filtered by user.
     user_filter: Option<Vec<UserFilter>>,
@@ -264,6 +159,7 @@ struct Args {
     )]
     /// Whether to include defunct processes.
     include_defunct: bool,
+    #[cfg(target_vendor = "apple")]
     #[arg(
         global = true,
         action = ArgAction::Set,
@@ -316,6 +212,7 @@ pub fn main() {
             user_ids,
             usernames,
             include_defunct: args.include_defunct,
+            #[cfg(target_vendor = "apple")]
             include_sip: args.include_sip,
         },
         use_box_drawing: !args.use_ascii,
