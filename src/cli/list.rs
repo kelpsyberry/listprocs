@@ -289,6 +289,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                     .into(),
                 }),
             )
+            .h_padding(Some(1))
             .build(),
 
             ColumnName::MemUsage => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
@@ -338,6 +339,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                     }
                 }
             }))
+            .h_padding(Some(1))
             .build(),
 
             ColumnName::PhysicalMemSize => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
@@ -364,6 +366,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                     }
                 }
             }))
+            .h_padding(Some(1))
             .build(),
 
             ColumnName::Tty => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
@@ -374,6 +377,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                     Some(Some(controlling_tty)) => controlling_tty.into(),
                 }),
             )
+            .h_padding(Some(1))
             .build(),
 
             ColumnName::StartTime => table::ColumnBuilder::<(Pid, ProcessInfo)>::new(
@@ -382,7 +386,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                     None => "-".into(),
                     Some(start_time) => {
                         let elapsed = start_time.elapsed().unwrap_or(Duration::ZERO);
-                        let use_am_pm = true;
+                        let use_am_pm = true; // TODO
                         let format = if args.ps_compat {
                             if elapsed.as_secs() < 24 * 3600 {
                                 if use_am_pm {
@@ -423,6 +427,7 @@ pub fn list(options: GlobalOptions, args: ListArgs) {
                     }
                 }),
             )
+            .h_padding(Some(1))
             .build(),
         })
         .collect::<Vec<_>>();
