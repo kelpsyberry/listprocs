@@ -103,7 +103,7 @@ enum Subcommand {
 }
 
 #[derive(clap::Parser)]
-/// A utility to list running processes and their info on macOS.
+/// A utility to list running processes and their info on macOS and Linux.
 #[command(
     name = "listprocs",
     version,
