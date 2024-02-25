@@ -1,4 +1,5 @@
 #[allow(dead_code)]
+#[macro_use]
 mod utils;
 
 #[cfg(target_vendor = "apple")]

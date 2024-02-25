@@ -10,15 +10,15 @@ use clap::{
     builder::{StringValueParser, TypedValueParser},
     ArgAction, Parser,
 };
+use rayon::prelude::*;
 use regex::{Regex, RegexBuilder};
 use std::borrow::Borrow;
 
 struct ProcessFilter {
     regex: Option<Regex>,
     invert_regex: bool,
-    user_ids: Vec<Uid>,
+    uids: Vec<Uid>,
     usernames: Vec<String>,
-    exclude_unauthorized: bool,
     include_defunct: bool,
     #[cfg(target_vendor = "apple")]
     include_sip: bool,
@@ -35,10 +35,6 @@ impl ProcessInfo {
                 #[cfg(not(target_vendor = "apple"))]
                 true
             })
-            && (!filter.exclude_unauthorized
-                || self.is_defunct
-                || self.path.to_option().is_some()
-                || matches!(self.cmd_line.to_option(), Some(Some(_))))
             && {
                 filter.usernames.is_empty()
                     || self
@@ -47,11 +43,11 @@ impl ProcessInfo {
                         .map_or(false, |username| filter.usernames.contains(username))
             }
             && {
-                filter.user_ids.is_empty()
+                filter.uids.is_empty()
                     || self
                         .uid
                         .to_option()
-                        .map_or(false, |uid| filter.user_ids.contains(uid))
+                        .map_or(false, |uid| filter.uids.contains(uid))
             }
             && {
                 filter.regex.as_ref().map_or(true, |regex| {
@@ -62,11 +58,17 @@ impl ProcessInfo {
     }
 
     fn apply_filter<'a, P: Borrow<Pid>, I: Borrow<ProcessInfo>>(
-        info: impl IntoIterator<Item = (P, I)> + 'a,
+        info: impl Iterator<Item = (P, I)> + 'a,
         filter: &'a ProcessFilter,
     ) -> impl Iterator<Item = (P, I)> + 'a {
-        info.into_iter()
-            .filter(|(pid, info)| info.borrow().filter(*pid.borrow(), filter))
+        info.filter(|(pid, info)| info.borrow().filter(*pid.borrow(), filter))
+    }
+
+    fn par_apply_filter<'a, P: Borrow<Pid> + Send, I: Borrow<ProcessInfo> + Send>(
+        info: impl ParallelIterator<Item = (P, I)> + 'a,
+        filter: &'a ProcessFilter,
+    ) -> impl ParallelIterator<Item = (P, I)> + 'a {
+        info.filter(|(pid, info)| info.borrow().filter(*pid.borrow(), filter))
     }
 }
 
@@ -151,18 +153,6 @@ struct Args {
     #[arg(
         global = true,
         action = ArgAction::Set,
-        long = "no-unauthorized",
-        value_name = "BOOL",
-        require_equals = true,
-        num_args = 0..2,
-        default_missing_value = "true",
-        default_value = "false",
-    )]
-    /// Whether to exclude processes for which both the path and command line can't be accessed.
-    exclude_unauthorized: bool,
-    #[arg(
-        global = true,
-        action = ArgAction::Set,
         long = "defunct",
         value_name = "BOOL",
         require_equals = true,
@@ -199,6 +189,18 @@ struct Args {
     )]
     /// Whether to only use ASCII for output.
     use_ascii: bool,
+    #[arg(
+        global = true,
+        action = ArgAction::Set,
+        long,
+        value_name = "BOOL",
+        require_equals = true,
+        num_args = 0..2,
+        default_missing_value = "true",
+        default_value = "false",
+    )]
+    /// Whether to always use unlimited width for output, even when it's to an interactive terminal.
+    wide: bool,
 
     #[command(subcommand)]
     subcommand: Option<Subcommand>,
@@ -209,11 +211,11 @@ struct Args {
 pub fn main() {
     let args = Args::parse();
 
-    let mut user_ids = Vec::new();
+    let mut uids = Vec::new();
     let mut usernames = Vec::new();
     for filter in args.user_filter.into_iter().flatten() {
         match filter {
-            UserFilter::Uid(uid) => user_ids.push(uid),
+            UserFilter::Uid(uid) => uids.push(uid),
             UserFilter::Username(username) => usernames.push(username),
         }
     }
@@ -222,15 +224,18 @@ pub fn main() {
         filter: ProcessFilter {
             regex: args.regex,
             invert_regex: args.invert_matches,
-            user_ids,
+            uids,
             usernames,
-            exclude_unauthorized: args.exclude_unauthorized,
             include_defunct: args.include_defunct,
             #[cfg(target_vendor = "apple")]
             include_sip: args.include_sip,
         },
         use_box_drawing: !args.use_ascii,
-        terminal_width: terminal_size::terminal_size().map(|size| size.0 .0 as usize),
+        terminal_width: if args.wide {
+            None
+        } else {
+            terminal_size::terminal_size().map(|size| size.0 .0 as usize)
+        },
     };
 
     match args.subcommand {

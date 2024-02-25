@@ -8,7 +8,7 @@ use std::{
 };
 
 impl Pid {
-    pub(super) fn cmd_line(self) -> Result<Info<Option<Vec<OsString>>>, io::Error> {
+    pub(super) fn cmd_line(self) -> io::Result<Info<Option<Vec<OsString>>>> {
         unsafe {
             let mut args_mem_len: c_int = 0;
             check_pos_zero(libc::sysctl(

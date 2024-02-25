@@ -1,5 +1,6 @@
 use super::{GlobalOptions, ProcessInfo};
 use crate::{utils::truncate_string, Pid};
+use rayon::prelude::*;
 use std::{
     collections::{BTreeMap, HashMap},
     iter,
@@ -58,10 +59,19 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
             let info = &processes_info[pid];
             let mut name = info
                 .cmd_line
-                .to_option()
+                .to_inner_option()
                 .cloned()
-                .flatten()
-                .unwrap_or_else(|| info.path.to_str().to_string());
+                .or_else(|| info.path.to_inner_option().map(|path| format!("<{path}>")))
+                .or_else(|| {
+                    info.name.to_option().map(|name| {
+                        let mut result = format!("[{}]", name);
+                        if info.is_defunct {
+                            result.push_str(" <defunct>");
+                        }
+                        result
+                    })
+                })
+                .unwrap_or_else(|| info.name.to_str().to_string());
 
             if let Some(max_len) = options.terminal_width.map(|width| {
                 width
@@ -125,7 +135,7 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
             full_processes_info,
         )
     } else {
-        let processes_info = ProcessInfo::apply_filter(processes_info_iter, &options.filter)
+        let processes_info = ProcessInfo::par_apply_filter(processes_info_iter, &options.filter)
             .collect::<HashMap<_, _>>();
         (
             create_tree(&processes_info, &processes_info),

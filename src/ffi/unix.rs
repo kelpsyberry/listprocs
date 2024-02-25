@@ -58,7 +58,7 @@ impl Uid {
         unsafe { Uid(libc::getuid()) }
     }
 
-    pub(super) fn username(self) -> Result<OsString, io::Error> {
+    pub(super) fn username(self) -> io::Result<OsString> {
         unsafe {
             let passwd = check_nonnull(libc::getpwuid(self.0))?;
             Ok(OsStr::from_bytes(CStr::from_ptr((*passwd).pw_name).to_bytes()).to_os_string())

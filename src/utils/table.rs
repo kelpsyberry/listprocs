@@ -1,20 +1,27 @@
 use super::{mark_first, truncate_string};
 use std::{borrow::Cow, fmt::Write};
 
-type CalcWidth<T> = Box<dyn Fn(&T) -> usize>;
-type CalcValue<T> = Box<dyn Fn(&T) -> Cow<str>>;
+type CalcWidth<'a, T> = Box<dyn Fn(&T) -> usize + 'a>;
+type CalcValue<'a, T> = Box<dyn Fn(&T) -> Cow<str> + 'a>;
 
-pub struct ColumnBuilder<T> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Style {
+    BoxDrawing,
+    Ascii,
+    None,
+}
+
+pub struct ColumnBuilder<'a, T> {
     name: &'static str,
-    calc_width: Option<CalcWidth<T>>,
-    calc_value: CalcValue<T>,
+    calc_width: Option<CalcWidth<'a, T>>,
+    calc_value: CalcValue<'a, T>,
     max_width: Option<usize>,
     h_padding: Option<usize>,
     can_shrink: bool,
 }
 
-impl<T> ColumnBuilder<T> {
-    pub fn new(name: &'static str, calc_value: CalcValue<T>) -> Self {
+impl<'a, T> ColumnBuilder<'a, T> {
+    pub fn new(name: &'static str, calc_value: CalcValue<'a, T>) -> Self {
         Self {
             name,
             calc_width: None,
@@ -25,7 +32,7 @@ impl<T> ColumnBuilder<T> {
         }
     }
 
-    pub fn calc_width(self, calc_width: CalcWidth<T>) -> Self {
+    pub fn calc_width(self, calc_width: CalcWidth<'a, T>) -> Self {
         Self {
             calc_width: Some(calc_width),
             ..self
@@ -44,7 +51,7 @@ impl<T> ColumnBuilder<T> {
         Self { can_shrink, ..self }
     }
 
-    pub fn build(self) -> Column<T> {
+    pub fn build(self) -> Column<'a, T> {
         Column {
             name: self.name,
             calc_width: self.calc_width,
@@ -57,10 +64,10 @@ impl<T> ColumnBuilder<T> {
     }
 }
 
-pub struct Column<T> {
+pub struct Column<'a, T> {
     name: &'static str,
-    calc_width: Option<CalcWidth<T>>,
-    calc_value: CalcValue<T>,
+    calc_width: Option<CalcWidth<'a, T>>,
+    calc_value: CalcValue<'a, T>,
     width: usize,
     max_width: Option<usize>,
     h_padding: Option<usize>,
@@ -68,14 +75,14 @@ pub struct Column<T> {
 }
 
 pub struct Builder {
-    use_box_drawing: bool,
+    style: Style,
     h_padding: usize,
 }
 
 impl Default for Builder {
     fn default() -> Self {
         Self {
-            use_box_drawing: true,
+            style: Style::BoxDrawing,
             h_padding: 2,
         }
     }
@@ -86,32 +93,76 @@ impl Builder {
         Self::default()
     }
 
-    pub fn use_box_drawing(self, use_box_drawing: bool) -> Self {
-        Self {
-            use_box_drawing,
-            ..self
-        }
+    pub fn style(self, style: Style) -> Self {
+        Self { style, ..self }
     }
 
     pub fn h_padding(self, h_padding: usize) -> Self {
         Self { h_padding, ..self }
     }
 
-    fn side_h(&self, output: &mut String, width: usize) {
-        if self.use_box_drawing {
-            let _ = write!(output, "{empty:─<width$}", empty = "");
-        } else {
-            let _ = write!(output, "{empty:-<width$}", empty = "");
+    fn build_plain<'a, T: 'a>(
+        self,
+        columns: &mut [Column<T>],
+        data: impl IntoIterator<Item = &'a T> + Clone,
+    ) -> String {
+        if let Some((_, columns_before_last)) = columns.split_last_mut() {
+            for row in data.clone() {
+                for column in columns_before_last.iter_mut() {
+                    column.width = column
+                        .width
+                        .max(if let Some(calc_width) = &column.calc_width {
+                            calc_width(row)
+                        } else {
+                            (column.calc_value)(row).chars().count()
+                        });
+                }
+            }
         }
+
+        let mut output = String::new();
+
+        for column in columns.iter() {
+            let _ = write!(
+                output,
+                " {name:width$}",
+                name = column.name,
+                width = column.width,
+            );
+        }
+        output.push('\n');
+
+        for row in data {
+            for column in columns.iter() {
+                let _ = write!(
+                    output,
+                    " {value:width$}",
+                    value = (column.calc_value)(row).into_owned(),
+                    width = column.width
+                );
+            }
+            output.push('\n');
+        }
+
+        output
     }
 
-    pub fn build<'a, T: 'a>(
+    fn build_bordered<'a, T: 'a>(
         self,
         columns: &mut [Column<T>],
         data: impl IntoIterator<Item = &'a T> + Clone,
         max_width: Option<usize>,
+        use_box_drawing: bool,
     ) -> String {
-        let (corners, border_v) = if self.use_box_drawing {
+        fn border_h(output: &mut String, width: usize, use_box_drawing: bool) {
+            let _ = if use_box_drawing {
+                write!(output, "{empty:─<width$}", empty = "")
+            } else {
+                write!(output, "{empty:-<width$}", empty = "")
+            };
+        }
+
+        let (corners, border_v) = if use_box_drawing {
             (['┌', '┬', '┐', '├', '┼', '┤', '└', '┴', '┘'], '│')
         } else {
             (['|'; 9], '|')
@@ -184,9 +235,10 @@ impl Builder {
             if !is_first {
                 output.push(corners[1]);
             }
-            self.side_h(
+            border_h(
                 &mut output,
                 column.width + 2 * column.h_padding.unwrap_or(self.h_padding),
+                use_box_drawing,
             );
         }
         output.push(corners[2]);
@@ -199,7 +251,7 @@ impl Builder {
             }
             let _ = write!(
                 output,
-                "{empty: <h_padding$}{name:^width$}{empty: <h_padding$}",
+                "{empty:h_padding$}{name:^width$}{empty:h_padding$}",
                 empty = "",
                 h_padding = column.h_padding.unwrap_or(self.h_padding),
                 name = column.name,
@@ -214,9 +266,10 @@ impl Builder {
             if !is_first {
                 output.push(corners[4]);
             }
-            self.side_h(
+            border_h(
                 &mut output,
                 column.width + 2 * column.h_padding.unwrap_or(self.h_padding),
+                use_box_drawing,
             );
         }
         output.push(corners[5]);
@@ -232,7 +285,7 @@ impl Builder {
                 truncate_string(&mut value, column.width);
                 let _ = write!(
                     output,
-                    "{empty: <h_padding$}{value:<width$}{empty: <h_padding$}",
+                    "{empty:h_padding$}{value:width$}{empty:h_padding$}",
                     empty = "",
                     h_padding = column.h_padding.unwrap_or(self.h_padding),
                     width = column.width
@@ -247,12 +300,29 @@ impl Builder {
             if !is_first {
                 output.push(corners[7]);
             }
-            self.side_h(
+            border_h(
                 &mut output,
                 column.width + 2 * column.h_padding.unwrap_or(self.h_padding),
+                use_box_drawing,
             );
         }
         output.push(corners[8]);
+        output.push('\n');
         output
+    }
+
+    pub fn build<'a, T: 'a>(
+        self,
+        columns: &mut [Column<T>],
+        data: impl IntoIterator<Item = &'a T> + Clone,
+        max_width: Option<usize>,
+    ) -> String {
+        match &self.style {
+            Style::BoxDrawing | Style::Ascii => {
+                let use_box_drawing = matches!(self.style, Style::BoxDrawing);
+                self.build_bordered(columns, data, max_width, use_box_drawing)
+            }
+            Style::None => self.build_plain(columns, data),
+        }
     }
 }
