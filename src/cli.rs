@@ -51,8 +51,9 @@ impl ProcessInfo {
             }
             && {
                 filter.regex.as_ref().map_or(true, |regex| {
-                    filter.invert_regex != regex.is_match(self.path.to_str())
-                        || regex.is_match(self.cmd_line.to_str())
+                    filter.invert_regex
+                        != (regex.is_match(self.path.to_str())
+                            || regex.is_match(self.cmd_line.to_str()))
                 })
             }
     }
@@ -91,8 +92,7 @@ fn include_sip_long_help() -> String {
     format!(
         "Whether to include SIP-protected executables.
 
-Executables are considered SIP-protected if they're in any of the following paths: {}.
-Defaults to true if using a regex, and false otherwise.",
+Executables are considered SIP-protected if they're in any of the following paths: {}.",
         ProcessInfo::SIP_PREFIXES.join(", ")
     )
 }
@@ -172,7 +172,6 @@ struct Args {
         num_args = 0..2,
         default_missing_value = "true",
         default_value = "false",
-        default_value_if("regex", clap::builder::ArgPredicate::IsPresent, Some("true")),
         long_help = include_sip_long_help(),
     )]
     /// Whether to include SIP-protected executables.

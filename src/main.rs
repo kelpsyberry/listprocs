@@ -89,6 +89,8 @@ impl ProcessInfo {
         "/usr/sbin",
         "/usr/libexec",
         "/System",
+        "/Library/Apple",
+        "/private/var/db/com.apple.xpc.roleaccountd.staging",
     ];
 
     fn list_all() -> impl ParallelIterator<Item = (Pid, Self)> {
