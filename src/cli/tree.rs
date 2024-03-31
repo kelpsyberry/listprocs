@@ -73,7 +73,7 @@ pub fn tree(options: GlobalOptions, args: TreeArgs) {
                 })
                 .unwrap_or_else(|| info.name.to_str().to_string());
 
-            if let Some(max_len) = options.terminal_width.map(|width| {
+            if let Some(max_len) = options.terminal_width().map(|width| {
                 width
                     - (borders.chars().count()
                         + 2

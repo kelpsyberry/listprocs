@@ -1,5 +1,8 @@
+mod common;
 mod list;
 use list::ListArgs;
+mod watch;
+use watch::WatchArgs;
 mod tree;
 use tree::TreeArgs;
 mod user_filter;
@@ -76,7 +79,17 @@ impl ProcessInfo {
 struct GlobalOptions {
     filter: ProcessFilter,
     use_box_drawing: bool,
-    terminal_width: Option<usize>,
+    wide: bool,
+}
+
+impl GlobalOptions {
+    pub fn terminal_width(&self) -> Option<usize> {
+        if self.wide {
+            None
+        } else {
+            terminal_size::terminal_size().map(|size| size.0 .0 as usize)
+        }
+    }
 }
 
 fn regex_parser() -> impl TypedValueParser {
@@ -99,6 +112,7 @@ Executables are considered SIP-protected if they're in any of the following path
 
 #[derive(clap::Subcommand)]
 enum Subcommand {
+    Watch(WatchArgs),
     Tree(TreeArgs),
 }
 
@@ -230,15 +244,12 @@ pub fn main() {
             include_sip: args.include_sip,
         },
         use_box_drawing: !args.use_ascii,
-        terminal_width: if args.wide {
-            None
-        } else {
-            terminal_size::terminal_size().map(|size| size.0 .0 as usize)
-        },
+        wide: args.wide,
     };
 
     match args.subcommand {
         Some(Subcommand::Tree(tree_args)) => tree::tree(options, tree_args),
+        Some(Subcommand::Watch(watch_args)) => watch::watch(options, watch_args),
         None => list::list(options, args.list_args),
     }
 }
